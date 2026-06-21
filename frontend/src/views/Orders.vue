@@ -51,9 +51,11 @@
       </div>
 
       <el-table
+        ref="tableRef"
         :data="tableData"
         v-loading="loading"
         stripe
+        row-key="id"
         @selection-change="handleSelectionChange"
       >
         <el-table-column type="selection" width="50" />
@@ -78,17 +80,15 @@
             <el-tag :type="getStatusType(row.status)">{{ row.status_text }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="MOQ校验" width="100">
+        <el-table-column label="MOQ校验" width="130">
           <template #default="{ row }">
-            <el-tag v-if="row.moq_checked === 1" type="success">已通过</el-tag>
-            <el-tag v-else-if="row.moq_checked === 2" type="danger">未通过</el-tag>
-            <el-tag v-else type="info">未校验</el-tag>
+            <el-tag :type="getOrderMoqTagType(row)">{{ getOrderMoqText(row) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="170" />
         <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link @click="handleCheckMoq(row)" v-if="row.moq_checked !== 1">校验MOQ</el-button>
+            <el-button type="primary" link @click="handleCheckMoq(row)" v-if="row.status < 15 && !isOrderMoqPassed(row)">校验MOQ</el-button>
             <el-button type="primary" link @click="openReview(row, true)" v-if="row.status === 10">审核通过</el-button>
             <el-button type="danger" link @click="openReview(row, false)" v-if="row.status === 10">审核驳回</el-button>
             <el-button type="warning" link @click="handleGenerateShipping(row)" v-if="row.status === 15">生成面单</el-button>
@@ -133,15 +133,13 @@
           <el-descriptions-item label="创建时间">{{ currentOrder.created_at }}</el-descriptions-item>
           <el-descriptions-item label="MOQ校验">
             <div class="flex-gap" style="align-items:center">
-              <el-tag v-if="currentOrder.moq_checked === 1" type="success">已通过</el-tag>
-              <el-tag v-else-if="currentOrder.moq_checked === 2" type="danger">未通过</el-tag>
-              <el-tag v-else type="info">未校验</el-tag>
+              <el-tag :type="getOrderMoqTagType(currentOrder)">{{ getOrderMoqText(currentOrder) }}</el-tag>
               <el-button
                 type="primary"
                 size="small"
                 link
                 @click="checkMoqFromDetail"
-                v-if="currentOrder.moq_checked !== 1"
+                v-if="currentOrder.status < 15 && !isOrderMoqPassed(currentOrder)"
               >
                 <el-icon><Refresh /></el-icon> 重新校验
               </el-button>
@@ -156,21 +154,28 @@
           <el-table-column prop="name" label="产品名称" />
           <el-table-column prop="quantity" label="数量" width="100">
             <template #default="{ row }">
-              <span :style="{ color: row.quantity < row.moq ? '#F56C6C' : '' }">{{ row.quantity }}</span>
+              <span :style="{ color: !isItemMoqPassed(row) ? '#F56C6C' : '' }">{{ row.quantity }}</span>
             </template>
           </el-table-column>
           <el-table-column prop="moq" label="MOQ" width="100" />
           <el-table-column label="差值" width="90">
             <template #default="{ row }">
-              <span :style="{ color: row.quantity < row.moq ? '#F56C6C' : '#67C23A' }">
+              <span :style="{ color: !isItemMoqPassed(row) ? '#F56C6C' : '#67C23A' }">
                 {{ row.quantity >= row.moq ? '+' : '' }}{{ row.quantity - row.moq }}
               </span>
             </template>
           </el-table-column>
           <el-table-column label="MOQ状态" width="120">
             <template #default="{ row }">
-              <el-tag v-if="row.quantity >= row.moq" type="success">满足</el-tag>
+              <el-tag v-if="isItemMoqPassed(row)" type="success">满足</el-tag>
               <el-tag v-else type="danger">不满足</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="数据库状态" width="120" v-if="currentOrder?.items?.some(i => Object.prototype.hasOwnProperty.call(i, 'moq_passed'))">
+            <template #default="{ row }">
+              <el-tag v-if="row.moq_passed === 1 || row.moq_passed === true" type="success">DB:通过</el-tag>
+              <el-tag v-else-if="row.moq_passed === 0 || row.moq_passed === false" type="danger">DB:未通过</el-tag>
+              <el-tag v-else type="info">DB:未写入</el-tag>
             </template>
           </el-table-column>
         </el-table>
@@ -236,6 +241,38 @@ const getStatusType = (status) => {
   return map[status] || 'info'
 }
 
+const isItemMoqPassed = (item) => {
+  if (!item) return false
+  if (Object.prototype.hasOwnProperty.call(item, 'moq_passed')) {
+    return (item.moq_passed === 1 || item.moq_passed === true || item.moq_passed === '1')
+  }
+  const qty = Number(item.quantity || 0)
+  const moq = Number(item.moq || 0)
+  return moq <= 0 || qty >= moq
+}
+
+const isOrderMoqPassed = (order) => {
+  if (!order || !order.items || order.items.length === 0) return false
+  if (order.moq_checked === 1) return true
+  if (order.moq_checked === 2) return false
+  return order.items.every(it => isItemMoqPassed(it))
+}
+
+const getOrderMoqText = (order) => {
+  if (!order) return '未校验'
+  if (order.moq_checked === 1) return '已通过'
+  if (order.moq_checked === 2) return '未通过'
+  const allPassed = isOrderMoqPassed(order)
+  return allPassed ? '已通过(未同步)' : '未通过(未同步)'
+}
+
+const getOrderMoqTagType = (order) => {
+  if (!order) return 'info'
+  if (order.moq_checked === 1) return 'success'
+  if (order.moq_checked === 2) return 'danger'
+  return isOrderMoqPassed(order) ? 'success' : 'danger'
+}
+
 const loadList = async () => {
   loading.value = true
   try {
@@ -251,6 +288,7 @@ const loadList = async () => {
     const res = await orderApi.list(params)
     tableData.value = res.data?.list || []
     pagination.total = res.data?.total || 0
+    clearSelection()
   } catch (e) {
     console.error(e)
   } finally {
@@ -270,11 +308,22 @@ const handleSelectionChange = (val) => {
   selectedOrders.value = val
 }
 
+const tableRef = ref(null)
+
+const clearSelection = () => {
+  selectedOrders.value = []
+  tableRef.value?.clearSelection()
+}
+
 const syncOrderToTable = (updatedOrder) => {
   if (!updatedOrder) return
   const idx = tableData.value.findIndex(o => o.id === updatedOrder.id)
   if (idx !== -1) {
     tableData.value[idx] = { ...tableData.value[idx], ...updatedOrder }
+  }
+  const selIdx = selectedOrders.value.findIndex(o => o.id === updatedOrder.id)
+  if (selIdx !== -1) {
+    selectedOrders.value[selIdx] = { ...selectedOrders.value[selIdx], ...updatedOrder }
   }
   if (currentOrder.value && currentOrder.value.id === updatedOrder.id) {
     currentOrder.value = { ...currentOrder.value, ...updatedOrder }
@@ -312,7 +361,9 @@ const batchCheckMoq = async () => {
 
     if (res.data?.orders && res.data.orders.length) {
       res.data.orders.forEach(ord => syncOrderToTable(ord))
+      clearSelection()
     } else {
+      clearSelection()
       loadList()
     }
 
@@ -512,6 +563,7 @@ const submitReview = async () => {
       })
       if (res.data?.orders && res.data.orders.length) {
         res.data.orders.forEach(ord => syncOrderToTable(ord))
+        clearSelection()
       } else {
         loadList()
       }
