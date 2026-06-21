@@ -21,6 +21,12 @@ class OrderController {
         return $order;
     }
 
+    private function getOrderById($orderId) {
+        $row = $this->db->fetchOne("SELECT * FROM `{$this->table}` WHERE id = ?", [$orderId]);
+        if (!$row) return null;
+        return $this->formatOrder($row);
+    }
+
     public function index() {
         $page = max(1, (int)get_query_param('page', 1));
         $pageSize = max(1, (int)get_query_param('page_size', 20));
@@ -265,6 +271,8 @@ class OrderController {
 
         $result = $this->validateItemsMoq($items);
 
+        $orderData = null;
+
         if ($orderId > 0) {
             $this->db->beginTransaction();
             try {
@@ -284,6 +292,8 @@ class OrderController {
                     }
                 }
                 $this->db->commit();
+
+                $orderData = $this->getOrderById($orderId);
             } catch (Exception $e) {
                 $this->db->rollBack();
                 throw $e;
@@ -294,6 +304,7 @@ class OrderController {
             'passed' => $result['passed'],
             'message' => $result['message'],
             'items' => $result['items'],
+            'order' => $orderData,
         ]);
     }
 
@@ -307,6 +318,7 @@ class OrderController {
 
         $passedCount = 0;
         $failedCount = 0;
+        $updatedOrders = [];
 
         foreach ($orderIds as $oid) {
             $oid = (int)$oid;
@@ -335,11 +347,14 @@ class OrderController {
                     ], 'order_id = ? AND sku = ?', [$oid, $ri['sku']]);
                 }
             }
+
+            $updatedOrders[] = $this->getOrderById($oid);
         }
 
         json_success([
             'passed' => $passedCount,
             'failed' => $failedCount,
+            'orders' => $updatedOrders,
         ], '批量校验完成');
     }
 }
