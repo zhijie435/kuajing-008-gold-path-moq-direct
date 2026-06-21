@@ -37,6 +37,8 @@ $db->exec("CREATE TABLE IF NOT EXISTS moq_orders (
     status INTEGER NOT NULL DEFAULT 0,
     moq_checked INTEGER NOT NULL DEFAULT 0,
     moq_fail_reason TEXT NOT NULL DEFAULT '',
+    review_remark TEXT NOT NULL DEFAULT '',
+    reviewed_at TEXT,
     shipping_id INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))

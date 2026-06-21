@@ -100,6 +100,11 @@ class OrderController {
             json_error('请添加商品');
         }
 
+        $moqResult = $this->validateItemsMoq($items);
+        if (!$moqResult['passed']) {
+            json_error('订单包含未达到起订量的商品：' . $moqResult['message']);
+        }
+
         $this->db->beginTransaction();
         try {
             $orderNo = generate_order_no();
@@ -117,7 +122,8 @@ class OrderController {
                 'total_amount' => 0,
                 'total_weight' => 0,
                 'status' => 0,
-                'moq_checked' => 0,
+                'moq_checked' => 1,
+                'moq_fail_reason' => '',
             ]);
 
             $productIds = [];
@@ -356,5 +362,96 @@ class OrderController {
             'failed' => $failedCount,
             'orders' => $updatedOrders,
         ], '批量校验完成');
+    }
+
+    public function review($id) {
+        $row = $this->db->fetchOne("SELECT * FROM `{$this->table}` WHERE id = ?", [$id]);
+        if (!$row) json_error('订单不存在', 404);
+
+        if ((int)$row['moq_checked'] !== 1) {
+            json_error('订单未通过MOQ校验，无法审核');
+        }
+
+        if ((int)$row['status'] >= 15) {
+            json_error('订单已审核，无需重复操作');
+        }
+
+        $data = get_input_data();
+        $approved = (bool)($data['approved'] ?? true);
+        $reviewRemark = trim($data['review_remark'] ?? '');
+
+        $this->db->beginTransaction();
+        try {
+            if ($approved) {
+                $this->db->update($this->table, [
+                    'status' => 15,
+                    'review_remark' => $reviewRemark,
+                    'reviewed_at' => date('Y-m-d H:i:s'),
+                ], 'id = ?', [$id]);
+            } else {
+                $this->db->update($this->table, [
+                    'status' => 0,
+                    'review_remark' => $reviewRemark,
+                ], 'id = ?', [$id]);
+            }
+
+            $this->db->commit();
+            $order = $this->getOrderById($id);
+            json_success($order, $approved ? '审核通过' : '审核驳回');
+        } catch (Exception $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    public function batchReview() {
+        $data = get_input_data();
+        $orderIds = $data['order_ids'] ?? [];
+        $approved = (bool)($data['approved'] ?? true);
+        $reviewRemark = trim($data['review_remark'] ?? '');
+
+        if (!is_array($orderIds) || count($orderIds) === 0) {
+            json_error('请选择订单');
+        }
+
+        $successCount = 0;
+        $failCount = 0;
+        $updatedOrders = [];
+
+        foreach ($orderIds as $oid) {
+            $oid = (int)$oid;
+            $order = $this->db->fetchOne("SELECT * FROM `{$this->table}` WHERE id = ?", [$oid]);
+            if (!$order) {
+                $failCount++;
+                continue;
+            }
+
+            if ((int)$order['moq_checked'] !== 1 || (int)$order['status'] >= 15) {
+                $failCount++;
+                continue;
+            }
+
+            if ($approved) {
+                $this->db->update($this->table, [
+                    'status' => 15,
+                    'review_remark' => $reviewRemark,
+                    'reviewed_at' => date('Y-m-d H:i:s'),
+                ], 'id = ?', [$oid]);
+            } else {
+                $this->db->update($this->table, [
+                    'status' => 0,
+                    'review_remark' => $reviewRemark,
+                ], 'id = ?', [$oid]);
+            }
+
+            $successCount++;
+            $updatedOrders[] = $this->getOrderById($oid);
+        }
+
+        json_success([
+            'success' => $successCount,
+            'failed' => $failCount,
+            'orders' => $updatedOrders,
+        ], $approved ? '批量审核通过完成' : '批量审核驳回完成');
     }
 }

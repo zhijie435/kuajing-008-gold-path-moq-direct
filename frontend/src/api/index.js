@@ -46,7 +46,9 @@ export const orderApi = {
   update: (id, data) => request.put(`/orders/${id}`, data),
   delete: (id) => request.delete(`/orders/${id}`),
   checkMoq: (data) => request.post('/orders/check-moq', data),
-  batchCheckMoq: (data) => request.post('/orders/batch-check-moq', data)
+  batchCheckMoq: (data) => request.post('/orders/batch-check-moq', data),
+  review: (id, data) => request.post(`/orders/review/${id}`, data),
+  batchReview: (data) => request.post('/orders/batch-review', data)
 }
 
 export const shippingApi = {
@@ -54,7 +56,9 @@ export const shippingApi = {
   generate: (orderId) => request.post(`/shipping/generate/${orderId}`),
   batchGenerate: (data) => request.post('/shipping/batch-generate', data),
   print: (shippingId) => request.post(`/shipping/print/${shippingId}`),
-  batchPrint: (data) => request.post('/shipping/batch-print', data)
+  batchPrint: (data) => request.post('/shipping/batch-print', data),
+  ship: (shippingId) => request.post(`/shipping/ship/${shippingId}`),
+  batchShip: (data) => request.post('/shipping/batch-ship', data)
 }
 
 export const dashboardApi = {

@@ -85,6 +85,10 @@ class ShippingController {
             return ['success' => false, 'message' => '订单未通过MOQ校验'];
         }
 
+        if ((int)$order['status'] < 15) {
+            return ['success' => false, 'message' => '订单未经过审核，无法生成面单'];
+        }
+
         if ((int)$order['status'] >= 20) {
             return ['success' => false, 'message' => '订单已生成面单'];
         }
@@ -232,6 +236,90 @@ class ShippingController {
         }
 
         json_success(['count' => $count], "已标记 {$count} 张面单为打印状态");
+    }
+
+    public function markShipped($shippingId) {
+        $shippingId = (int)$shippingId;
+        $label = $this->db->fetchOne("SELECT * FROM `{$this->table}` WHERE id = ?", [$shippingId]);
+        if (!$label) json_error('面单不存在', 404);
+
+        if ((int)$label['status'] >= 2) {
+            json_error('面单已标记为发货状态');
+        }
+
+        $this->db->beginTransaction();
+        try {
+            $now = date('Y-m-d H:i:s');
+
+            $this->db->update($this->table, [
+                'status' => 2,
+                'shipped_at' => $now,
+            ], 'id = ?', [$shippingId]);
+
+            if (!empty($label['order_id'])) {
+                $this->db->update($this->orderTable, [
+                    'status' => 30,
+                ], 'id = ?', [$label['order_id']]);
+            }
+
+            $this->db->commit();
+
+            json_success([
+                'shipping_id' => $shippingId,
+                'shipped' => true,
+                'shipped_at' => $now,
+            ], '发货成功');
+        } catch (Exception $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    public function batchMarkShipped() {
+        $data = get_input_data();
+        $shippingIds = $data['shipping_ids'] ?? [];
+
+        if (!is_array($shippingIds) || count($shippingIds) === 0) {
+            json_error('请选择面单');
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $count = 0;
+        $updatedOrderIds = [];
+
+        $this->db->beginTransaction();
+        try {
+            foreach ($shippingIds as $sid) {
+                $sid = (int)$sid;
+                $label = $this->db->fetchOne("SELECT id, status, order_id FROM `{$this->table}` WHERE id = ?", [$sid]);
+                if (!$label || (int)$label['status'] >= 2) continue;
+
+                $this->db->update($this->table, [
+                    'status' => 2,
+                    'shipped_at' => $now,
+                ], 'id = ?', [$sid]);
+
+                if (!empty($label['order_id'])) {
+                    $this->db->update($this->orderTable, [
+                        'status' => 30,
+                    ], 'id = ?', [$label['order_id']]);
+                    $updatedOrderIds[] = $label['order_id'];
+                }
+
+                $count++;
+            }
+
+            $this->db->commit();
+
+            json_success([
+                'count' => $count,
+                'shipped_at' => $now,
+                'updated_order_ids' => $updatedOrderIds,
+            ], "已标记 {$count} 张面单为发货状态");
+        } catch (Exception $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
     }
 
     public function store() {

@@ -79,9 +79,16 @@
       </div>
 
       <div v-if="step === 2">
+        <el-alert
+          :title="moqResult.passed ? '所有商品均满足起订量要求，可以提交订单' : '存在商品未达到起订量，无法提交订单'"
+          :type="moqResult.passed ? 'success' : 'error'"
+          :closable="false"
+          show-icon
+          class="mb-16"
+        />
         <el-result :icon="moqResult.passed ? 'success' : 'warning'" :title="moqResult.passed ? 'MOQ校验通过' : 'MOQ校验未通过'">
           <template #sub-title>
-            <span>{{ moqResult.message }}</span>
+            <span style="color:#F56C6C">{{ moqResult.message }}</span>
           </template>
           <template #extra>
             <div class="card" style="max-width: 100%; margin: 0 auto">
@@ -89,7 +96,14 @@
                 <el-table-column prop="sku" label="SKU" width="140" />
                 <el-table-column prop="name" label="产品名称" />
                 <el-table-column prop="moq" label="MOQ起订量" width="110" />
-                <el-table-column prop="quantity" label="下单数量" width="110" />
+                <el-table-column prop="quantity" label="下单数量" width="110">
+                  <template #default="{ row }">
+                    <span :style="{ color: row.quantity < row.moq ? '#F56C6C' : '', fontWeight: row.quantity < row.moq ? 600 : 400 }">
+                      {{ row.quantity }}
+                      <span v-if="row.quantity < row.moq" style="font-size:12px"> (差{{ row.moq - row.quantity }})</span>
+                    </span>
+                  </template>
+                </el-table-column>
                 <el-table-column label="校验结果" width="120">
                   <template #default="{ row }">
                     <el-tag v-if="row.passed" type="success">通过</el-tag>
@@ -99,8 +113,17 @@
               </el-table>
             </div>
             <div class="flex-gap mt-16" style="justify-content: center">
-              <el-button @click="goToStep(1)" v-if="!moqResult.passed">返回修改</el-button>
-              <el-button type="primary" :disabled="!moqResult.passed" @click="submitOrder">
+              <el-button @click="goToStep(1)">返回修改数量</el-button>
+              <el-tooltip
+                v-if="!moqResult.passed"
+                content="请先调整商品数量达到MOQ要求后再提交"
+                placement="top"
+              >
+                <el-button type="primary" disabled>
+                  <el-icon><Check /></el-icon> 提交订单
+                </el-button>
+              </el-tooltip>
+              <el-button v-if="moqResult.passed" type="primary" @click="submitOrder">
                 <el-icon><Check /></el-icon> 提交订单
               </el-button>
             </div>

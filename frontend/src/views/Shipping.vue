@@ -304,7 +304,8 @@ const printCurrentLabel = async () => {
 const markShipped = async (row) => {
   try {
     await ElMessageBox.confirm(`确认运单 ${row.shipping_no} 已发货？`, '提示', { type: 'warning' })
-    ElMessage.success('已标记发货')
+    await shippingApi.ship(row.id)
+    ElMessage.success('已标记发货，订单状态已同步更新')
     loadList()
   } catch (e) {
     if (e !== 'cancel') console.error(e)
@@ -328,8 +329,14 @@ const batchPrint = async () => {
 
 const batchMarkShipped = async () => {
   try {
-    await ElMessageBox.confirm(`确认将选中的 ${selectedList.value.length} 张面单标记为发货？`, '提示', { type: 'warning' })
-    ElMessage.success('批量标记发货成功')
+    const ids = selectedList.value.filter(s => s.status < 2).map(s => s.id)
+    if (ids.length === 0) {
+      ElMessage.warning('请选择待发货的面单')
+      return
+    }
+    await ElMessageBox.confirm(`确认将选中的 ${ids.length} 张面单标记为发货？`, '提示', { type: 'warning' })
+    const res = await shippingApi.batchShip({ shipping_ids: ids })
+    ElMessage.success(`批量标记发货成功，已同步更新 ${res.data?.count || 0} 个订单状态`)
     loadList()
   } catch (e) {
     if (e !== 'cancel') console.error(e)

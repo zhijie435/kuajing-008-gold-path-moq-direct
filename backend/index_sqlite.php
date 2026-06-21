@@ -53,6 +53,7 @@ function get_order_status_text($status) {
     $map = [
         0 => '待审核',
         10 => 'MOQ已通过',
+        15 => '已审核',
         20 => '已生成面单',
         30 => '已发货',
         40 => '已取消',
@@ -93,6 +94,8 @@ try {
             elseif ($method === 'DELETE' && $id !== null) $controller->destroy($id);
             elseif ($method === 'POST' && $id === 'check-moq') $controller->checkMoq();
             elseif ($method === 'POST' && $id === 'batch-check-moq') $controller->batchCheckMoq();
+            elseif ($method === 'POST' && $id === 'review' && $action !== null) $controller->review($action);
+            elseif ($method === 'POST' && $id === 'batch-review') $controller->batchReview();
             else json_error('路由不存在', 404);
             break;
 
@@ -105,6 +108,8 @@ try {
             elseif ($method === 'POST' && $id === 'batch-generate') $controller->batchGenerate();
             elseif ($method === 'POST' && $id === 'print' && $action !== null) $controller->printLabel($action);
             elseif ($method === 'POST' && $id === 'batch-print') $controller->batchPrint();
+            elseif ($method === 'POST' && $id === 'ship' && $action !== null) $controller->markShipped($action);
+            elseif ($method === 'POST' && $id === 'batch-ship') $controller->batchMarkShipped();
             else json_error('路由不存在', 404);
             break;
 
