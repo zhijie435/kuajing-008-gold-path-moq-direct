@@ -4,6 +4,40 @@
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS `moq_departments`;
+CREATE TABLE `moq_departments` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `name` varchar(64) NOT NULL DEFAULT '' COMMENT '部门名称',
+  `code` varchar(32) NOT NULL DEFAULT '' COMMENT '部门编码',
+  `parent_id` int(11) unsigned NOT NULL DEFAULT 0 COMMENT '父部门ID',
+  `status` tinyint(1) NOT NULL DEFAULT 1 COMMENT '状态:1正常,0禁用',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_code` (`code`),
+  KEY `idx_parent_id` (`parent_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='部门表';
+
+DROP TABLE IF EXISTS `moq_users`;
+CREATE TABLE `moq_users` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `username` varchar(64) NOT NULL DEFAULT '' COMMENT '用户名',
+  `password` varchar(128) NOT NULL DEFAULT '' COMMENT '密码',
+  `real_name` varchar(64) NOT NULL DEFAULT '' COMMENT '真实姓名',
+  `role` varchar(32) NOT NULL DEFAULT 'viewer' COMMENT '角色:admin/operator/viewer',
+  `department_id` int(11) unsigned NOT NULL DEFAULT 0 COMMENT '部门ID',
+  `email` varchar(128) NOT NULL DEFAULT '' COMMENT '邮箱',
+  `phone` varchar(20) NOT NULL DEFAULT '' COMMENT '电话',
+  `status` tinyint(1) NOT NULL DEFAULT 1 COMMENT '状态:1正常,0禁用',
+  `last_login_at` datetime DEFAULT NULL COMMENT '最后登录时间',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_username` (`username`),
+  KEY `idx_department_id` (`department_id`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户表';
+
 DROP TABLE IF EXISTS `moq_products`;
 CREATE TABLE `moq_products` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
@@ -42,6 +76,8 @@ CREATE TABLE `moq_orders` (
   `review_remark` varchar(500) NOT NULL DEFAULT '' COMMENT '审核备注',
   `reviewed_at` datetime DEFAULT NULL COMMENT '审核时间',
   `shipping_id` int(11) unsigned DEFAULT NULL COMMENT '关联面单ID',
+  `created_by` int(11) unsigned NOT NULL DEFAULT 0 COMMENT '创建人ID',
+  `department_id` int(11) unsigned NOT NULL DEFAULT 0 COMMENT '部门ID',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
@@ -49,7 +85,9 @@ CREATE TABLE `moq_orders` (
   KEY `idx_status` (`status`),
   KEY `idx_moq_checked` (`moq_checked`),
   KEY `idx_created_at` (`created_at`),
-  KEY `idx_receiver_phone` (`receiver_phone`)
+  KEY `idx_receiver_phone` (`receiver_phone`),
+  KEY `idx_created_by` (`created_by`),
+  KEY `idx_department_id` (`department_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订单表';
 
 DROP TABLE IF EXISTS `moq_order_items`;
@@ -89,13 +127,17 @@ CREATE TABLE `moq_shipping_labels` (
   `status` tinyint(2) NOT NULL DEFAULT 0 COMMENT '状态:0待打印,1已打印,2已发货,9已作废',
   `printed_at` datetime DEFAULT NULL COMMENT '打印时间',
   `shipped_at` datetime DEFAULT NULL COMMENT '发货时间',
+  `created_by` int(11) unsigned NOT NULL DEFAULT 0 COMMENT '创建人ID',
+  `department_id` int(11) unsigned NOT NULL DEFAULT 0 COMMENT '部门ID',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_shipping_no` (`shipping_no`),
   UNIQUE KEY `uk_order_id` (`order_id`),
   KEY `idx_status` (`status`),
-  KEY `idx_created_at` (`created_at`)
+  KEY `idx_created_at` (`created_at`),
+  KEY `idx_created_by` (`created_by`),
+  KEY `idx_department_id` (`department_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='面单表';
 
 DROP TABLE IF EXISTS `moq_shipping_items`;
@@ -124,3 +166,15 @@ INSERT INTO `moq_products` (`sku`, `name`, `category`, `moq`, `unit`, `price`, `
 ('SKU008', '鼠标垫', '办公周边', 500, '个', 5.00, 5000, 20.00, '防滑橡胶鼠标垫'),
 ('SKU009', '笔记本支架', '办公周边', 60, '个', 58.00, 400, 320.00, '铝合金散热支架'),
 ('SKU010', '桌面收纳盒', '办公周边', 150, '个', 28.00, 1200, 150.00, '多格分类收纳盒');
+
+INSERT INTO `moq_departments` (`name`, `code`, `parent_id`) VALUES
+('总公司', 'HQ', 0),
+('销售部', 'SALES', 1),
+('运营部', 'OPS', 1),
+('仓储部', 'WH', 1);
+
+INSERT INTO `moq_users` (`username`, `password`, `real_name`, `role`, `department_id`, `email`, `phone`) VALUES
+('admin', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '系统管理员', 'admin', 1, 'admin@example.com', '13800000001'),
+('operator1', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '运营专员', 'operator', 3, 'operator1@example.com', '13800000002'),
+('operator2', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '仓储专员', 'operator', 4, 'operator2@example.com', '13800000003'),
+('viewer1', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', '销售查看员', 'viewer', 2, 'viewer1@example.com', '13800000004');

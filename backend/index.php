@@ -11,6 +11,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/Database.php';
+require_once __DIR__ . '/services/Constants.php';
+require_once __DIR__ . '/services/BusinessException.php';
+require_once __DIR__ . '/services/PermissionService.php';
+require_once __DIR__ . '/services/MoqService.php';
+require_once __DIR__ . '/services/OrderService.php';
+require_once __DIR__ . '/services/ShippingService.php';
 
 function json_response($code, $message = '', $data = null) {
     echo json_encode([
@@ -124,10 +130,19 @@ try {
         default:
             json_response(0, 'MOQ直发打单系统 API 已启动');
     }
+} catch (BusinessException $e) {
+    json_error(
+        $e->getMessage(),
+        $e->getCode(),
+        array_merge([
+            'retryable' => $e->isRetryable(),
+            'rollback' => $e->shouldRollback(),
+        ], (array)$e->getErrorData())
+    );
 } catch (Exception $e) {
     if (APP_DEBUG) {
-        json_error($e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine(), 500);
+        json_error($e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine(), Constants::ERROR_CODE_SERVER_ERROR);
     } else {
-        json_error('服务器内部错误', 500);
+        json_error('服务器内部错误', Constants::ERROR_CODE_SERVER_ERROR);
     }
 }

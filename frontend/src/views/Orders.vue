@@ -88,7 +88,7 @@
         <el-table-column prop="created_at" label="创建时间" width="170" />
         <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link @click="handleCheckMoq(row)" v-if="row.status < 15 && !isOrderMoqPassed(row)">校验MOQ</el-button>
+            <el-button type="primary" link @click="handleCheckMoq(row)" v-if="row.status !== 40 && row.status < 15 && !isOrderMoqPassed(row)">校验MOQ</el-button>
             <el-button type="primary" link @click="openReview(row, true)" v-if="row.status === 10">审核通过</el-button>
             <el-button type="danger" link @click="openReview(row, false)" v-if="row.status === 10">审核驳回</el-button>
             <el-button type="warning" link @click="handleGenerateShipping(row)" v-if="row.status === 15">生成面单</el-button>
@@ -139,7 +139,7 @@
                 size="small"
                 link
                 @click="checkMoqFromDetail"
-                v-if="currentOrder.status < 15 && !isOrderMoqPassed(currentOrder)"
+                v-if="currentOrder.status !== 40 && currentOrder.status < 15 && !isOrderMoqPassed(currentOrder)"
               >
                 <el-icon><Refresh /></el-icon> 重新校验
               </el-button>
@@ -358,6 +358,7 @@ const batchCheckMoq = async () => {
     const res = await orderApi.batchCheckMoq({ order_ids: ids })
     const passed = res.data?.passed || 0
     const failed = res.data?.failed || 0
+    const skippedCancelled = res.data?.skipped_cancelled || 0
 
     if (res.data?.orders && res.data.orders.length) {
       res.data.orders.forEach(ord => syncOrderToTable(ord))
@@ -367,9 +368,13 @@ const batchCheckMoq = async () => {
       loadList()
     }
 
-    if (failed > 0) {
+    const cancelledHtml = skippedCancelled > 0
+      ? `<p style="color:#909399">跳过已取消: <b>${skippedCancelled}</b> 条</p>`
+      : ''
+
+    if (failed > 0 || skippedCancelled > 0) {
       ElMessageBox.warning(
-        `<p>批量校验完成</p><p style="color:#67C23A">通过: <b>${passed}</b> 条</p><p style="color:#F56C6C">未通过: <b>${failed}</b> 条</p><p style="color:#909399;font-size:12px">请对未通过的订单调整商品数量后重新校验</p>`,
+        `<p>批量校验完成</p><p style="color:#67C23A">通过: <b>${passed}</b> 条</p><p style="color:#F56C6C">未通过: <b>${failed}</b> 条</p>${cancelledHtml}<p style="color:#909399;font-size:12px">请对未通过的订单调整商品数量后重新校验</p>`,
         '批量校验结果',
         { confirmButtonText: '我知道了', dangerouslyUseHTMLString: true }
       )
@@ -397,24 +402,26 @@ const handleGenerateShipping = async (row) => {
     const errorData = e?.response?.data || {}
     const errMsg = errorData.message || e.message || '面单生成失败'
     const rollback = errorData.data?.rollback || false
+    const retryable = errorData.data?.retryable || false
+    const orderNo = errorData.data?.order_no || row.order_no
     retryOrderId.value = errorData.data?.order_id || row.id
-    retryOrderNo.value = errorData.data?.order_no || row.order_no
+    retryOrderNo.value = orderNo
     retryErrorMessage.value = errMsg
-    isRetryable.value = errorData.data?.retryable || false
+    isRetryable.value = retryable
     ElMessageBox({
       title: '打单失败',
       message: h('div', null, [
-        h('p', { style: 'color: #F56C6C; margin-bottom: 8px' }, errMsg),
+        h('p', { style: 'color: #F56C6C; margin-bottom: 8px' }, orderNo ? `订单 ${orderNo}：${errMsg}` : errMsg),
         rollback ? h('p', { style: 'color: #67C23A; margin-bottom: 8px' }, '✅ 数据已自动回滚，订单状态未受影响') : null,
-        isRetryable.value ? h('p', { style: 'color: #E6A23C' }, '💡 您可以点击下方重试按钮再次尝试') : null
+        retryable ? h('p', { style: 'color: #E6A23C' }, '💡 您可以点击下方重试按钮再次尝试') : h('p', { style: 'color: #909399' }, '💡 请根据提示修正后再试')
       ]),
-      showCancelButton: isRetryable.value,
-      confirmButtonText: isRetryable.value ? '立即重试' : '我知道了',
+      showCancelButton: retryable,
+      confirmButtonText: retryable ? '立即重试' : '我知道了',
       cancelButtonText: '取消',
-      type: 'error',
+      type: retryable ? 'warning' : 'error',
       dangerouslyUseHTMLString: true
     }).then(async () => {
-      if (isRetryable.value && retryOrderId.value) {
+      if (retryable && retryOrderId.value) {
         await handleGenerateShipping({ id: retryOrderId.value, order_no: retryOrderNo.value })
       }
     }).catch(() => {})

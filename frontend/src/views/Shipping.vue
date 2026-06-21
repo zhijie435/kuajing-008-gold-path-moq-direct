@@ -326,8 +326,16 @@ const batchPrint = async () => {
       ElMessage.warning('请选择待打印的面单')
       return
     }
-    await shippingApi.batchPrint({ shipping_ids: ids })
-    ElMessage.success(`已标记 ${ids.length} 张面单为打印状态`)
+    const res = await shippingApi.batchPrint({ shipping_ids: ids })
+    const count = res.data?.count || 0
+    const skippedVoid = res.data?.skipped_void || 0
+    const skippedShipped = res.data?.skipped_shipped || 0
+    const notFound = res.data?.not_found || 0
+    let msg = `已标记 ${count} 张面单为打印状态`
+    if (skippedVoid > 0) msg += `，跳过已作废 ${skippedVoid} 张`
+    if (skippedShipped > 0) msg += `，跳过已发货 ${skippedShipped} 张`
+    if (notFound > 0) msg += `，未找到 ${notFound} 张`
+    ElMessage.success(msg)
     loadList()
   } catch (e) {
     console.error(e)
@@ -345,7 +353,15 @@ const batchMarkShipped = async () => {
     }
     await ElMessageBox.confirm(`确认将选中的 ${ids.length} 张面单标记为发货？`, '提示', { type: 'warning' })
     const res = await shippingApi.batchShip({ shipping_ids: ids })
-    ElMessage.success(`批量标记发货成功，已同步更新 ${res.data?.count || 0} 个订单状态`)
+    const count = res.data?.count || 0
+    const skippedVoid = res.data?.skipped_void || 0
+    const skippedShipped = res.data?.skipped_shipped || 0
+    const notFound = res.data?.not_found || 0
+    let msg = `批量标记发货成功，已同步更新 ${count} 个订单状态`
+    if (skippedVoid > 0) msg += `，跳过已作废 ${skippedVoid} 张`
+    if (skippedShipped > 0) msg += `，跳过已发货 ${skippedShipped} 张`
+    if (notFound > 0) msg += `，未找到 ${notFound} 张`
+    ElMessage.success(msg)
     loadList()
   } catch (e) {
     if (e === 'cancel') return

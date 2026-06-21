@@ -8,6 +8,31 @@ $db = new PDO('sqlite:' . $dbFile);
 $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 
+$db->exec("CREATE TABLE IF NOT EXISTS moq_departments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL DEFAULT '',
+    code TEXT NOT NULL DEFAULT '',
+    parent_id INTEGER NOT NULL DEFAULT 0,
+    status INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+)");
+
+$db->exec("CREATE TABLE IF NOT EXISTS moq_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL DEFAULT '',
+    password TEXT NOT NULL DEFAULT '',
+    real_name TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'viewer',
+    department_id INTEGER NOT NULL DEFAULT 0,
+    email TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    status INTEGER NOT NULL DEFAULT 1,
+    last_login_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+)");
+
 $db->exec("CREATE TABLE IF NOT EXISTS moq_products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sku TEXT NOT NULL DEFAULT '',
@@ -40,6 +65,8 @@ $db->exec("CREATE TABLE IF NOT EXISTS moq_orders (
     review_remark TEXT NOT NULL DEFAULT '',
     reviewed_at TEXT,
     shipping_id INTEGER,
+    created_by INTEGER NOT NULL DEFAULT 0,
+    department_id INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 )");
@@ -75,6 +102,8 @@ $db->exec("CREATE TABLE IF NOT EXISTS moq_shipping_labels (
     status INTEGER NOT NULL DEFAULT 0,
     printed_at TEXT,
     shipped_at TEXT,
+    created_by INTEGER NOT NULL DEFAULT 0,
+    department_id INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 )");
@@ -108,6 +137,37 @@ if ($count == 0) {
         $stmt->execute($p);
     }
     echo "初始化产品数据成功，共 " . count($products) . " 条记录\n";
+}
+
+$count = $db->query("SELECT COUNT(*) FROM moq_departments")->fetchColumn();
+if ($count == 0) {
+    $departments = [
+        ['总公司', 'HQ', 0],
+        ['销售部', 'SALES', 1],
+        ['运营部', 'OPS', 1],
+        ['仓储部', 'WH', 1],
+    ];
+    $stmt = $db->prepare("INSERT INTO moq_departments (name, code, parent_id) VALUES (?, ?, ?)");
+    foreach ($departments as $d) {
+        $stmt->execute($d);
+    }
+    echo "初始化部门数据成功，共 " . count($departments) . " 条记录\n";
+}
+
+$count = $db->query("SELECT COUNT(*) FROM moq_users")->fetchColumn();
+if ($count == 0) {
+    $passwordHash = password_hash('123456', PASSWORD_DEFAULT);
+    $users = [
+        ['admin', $passwordHash, '系统管理员', 'admin', 1, 'admin@example.com', '13800000001'],
+        ['operator1', $passwordHash, '运营专员', 'operator', 3, 'operator1@example.com', '13800000002'],
+        ['operator2', $passwordHash, '仓储专员', 'operator', 4, 'operator2@example.com', '13800000003'],
+        ['viewer1', $passwordHash, '销售查看员', 'viewer', 2, 'viewer1@example.com', '13800000004'],
+    ];
+    $stmt = $db->prepare("INSERT INTO moq_users (username, password, real_name, role, department_id, email, phone) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    foreach ($users as $u) {
+        $stmt->execute($u);
+    }
+    echo "初始化用户数据成功，共 " . count($users) . " 条记录\n";
 }
 
 echo "SQLite 数据库初始化完成: {$dbFile}\n";

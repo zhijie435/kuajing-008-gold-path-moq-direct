@@ -1,15 +1,25 @@
 <?php
 $baseUrl = 'http://localhost:8088/api';
 
+function generateTestToken($userId) {
+    $header = base64_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
+    $payload = base64_encode(json_encode(['uid' => $userId, 'exp' => time() + 3600]));
+    $signature = base64_encode('test_signature');
+    return "{$header}.{$payload}.{$signature}";
+}
+
+$adminToken = generateTestToken(1);
+
 function request($method, $path, $data = null) {
-    global $baseUrl;
+    global $baseUrl, $adminToken;
     $ch = curl_init($baseUrl . $path);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+    $headers = ['Content-Type: application/json', "Authorization: Bearer {$adminToken}"];
     if ($data !== null) {
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
     }
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
     $result = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
