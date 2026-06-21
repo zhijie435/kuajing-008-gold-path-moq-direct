@@ -946,7 +946,7 @@ test('OrderService::reviewOrder - 审核驳回状态回退', function() use ($or
     assert_eq($result['order']['status'], Constants::ORDER_STATUS_MOQ_PASSED);
 });
 
-test('OrderService::batchReviewOrders - 批量审核', function() use ($orderService, $p1, $p2) {
+test('OrderService::batchReviewOrders - 批量审核', function() use ($orderService, $moqService, $p1, $p2) {
     $ids = [];
     for ($i = 0; $i < 3; $i++) {
         $data = [
@@ -960,6 +960,7 @@ test('OrderService::batchReviewOrders - 批量审核', function() use ($orderSer
             ]],
         ];
         $r = $orderService->createOrder($data);
+        $moqService->checkOrderMoq($r['id']);
         $ids[] = $r['id'];
     }
     $ids[] = 99999;
@@ -974,9 +975,10 @@ echo "模块三: 面单生成的状态闭环 - ShippingService\n";
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n";
 
 function createReadyOrder($name, $phone, $address, $items) {
-    global $orderService;
+    global $orderService, $moqService;
     $data = ['receiver_name' => $name, 'receiver_phone' => $phone, 'receiver_address' => $address, 'items' => $items];
     $r = $orderService->createOrder($data);
+    $moqService->checkOrderMoq($r['id']);
     $orderService->reviewOrder($r['id'], ['approved' => true]);
     return $r['id'];
 }
@@ -1250,7 +1252,7 @@ test('ShippingService::状态闭环 - 完整状态流转PENDING->PRINTED->SHIPPE
     assert_eq($label['status'], Constants::SHIPPING_STATUS_SHIPPED);
 });
 
-test('ShippingService::状态闭环 - 订单状态流转链正确', function() use ($orderService, $shippingService, $p1, $p2) {
+test('ShippingService::状态闭环 - 订单状态流转链正确', function() use ($orderService, $shippingService, $moqService, $p1, $p2) {
     $data = [
         'receiver_name' => '状态链', 'receiver_phone' => '13000000001', 'receiver_address' => '链地址',
         'items' => [[
@@ -1263,6 +1265,11 @@ test('ShippingService::状态闭环 - 订单状态流转链正确', function() u
     $oid = $r['id'];
 
     $statuses = [];
+    $order = $orderService->getOrderDetail($oid);
+    $statuses[] = $order['status'];
+    assert_eq(end($statuses), Constants::ORDER_STATUS_PENDING);
+
+    $moqService->checkOrderMoq($oid);
     $order = $orderService->getOrderDetail($oid);
     $statuses[] = $order['status'];
     assert_eq(end($statuses), Constants::ORDER_STATUS_MOQ_PASSED);
@@ -1285,6 +1292,7 @@ test('ShippingService::状态闭环 - 订单状态流转链正确', function() u
     assert_eq(end($statuses), Constants::ORDER_STATUS_SHIPPED);
 
     $expectedChain = [
+        Constants::ORDER_STATUS_PENDING,
         Constants::ORDER_STATUS_MOQ_PASSED,
         Constants::ORDER_STATUS_REVIEWED,
         Constants::ORDER_STATUS_LABEL_GENERATED,
