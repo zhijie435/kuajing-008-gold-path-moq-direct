@@ -6,22 +6,20 @@ $testDbDir = __DIR__ . '/backend/data_test';
 if (!is_dir($testDbDir)) {
     mkdir($testDbDir, 0777, true);
 }
-$testDbFile = $testDbDir . '/moq_test_' . time() . '_' . mt_rand(1000, 9999) . '.sqlite';
+$GLOBALS['TEST_DB_FILE'] = $testDbDir . '/moq_test_' . time() . '_' . mt_rand(1000, 9999) . '.sqlite';
+$testDbFile = &$GLOBALS['TEST_DB_FILE'];
 
 define('DB_TYPE', 'sqlite');
 define('DB_SQLITE_PATH', $testDbFile);
-
 define('DB_HOST', '127.0.0.1');
 define('DB_PORT', 3306);
 define('DB_NAME', 'moq_shipping');
 define('DB_USER', 'root');
 define('DB_PASS', '');
 define('DB_CHARSET', 'utf8mb4');
-
 define('APP_DEBUG', true);
 define('APP_TIMEZONE', 'Asia/Shanghai');
 date_default_timezone_set(APP_TIMEZONE);
-
 define('API_BASE_PATH', '/api');
 define('CARRIER_DEFAULT', '顺丰速运');
 define('ORDER_PREFIX', 'MOQ');
@@ -38,15 +36,30 @@ $GLOBALS['TEST_USER_ID'] = 1;
 $GLOBALS['TEST_USER_ROLE'] = 'admin';
 $GLOBALS['TEST_USER_DEPT'] = 1;
 
-require_once __DIR__ . '/backend/Database_sqlite.php';
+$dbClassCode = file_get_contents(__DIR__ . '/backend/Database_sqlite.php');
+$dbClassCode = str_replace("<?php", "", $dbClassCode);
+$dbClassCode = str_replace("require_once __DIR__ . '/config_sqlite.php';", "", $dbClassCode);
+$dbClassCode = preg_replace(
+    "/private\\s+static\\s+\\$instance\\s*=\\s*null;/",
+    "public static \$instance = null;",
+    $dbClassCode
+);
+$dbClassCode = preg_replace(
+    "/if\\s*\\(!file_exists\\(DB_SQLITE_PATH\\)\\)\\s*\\{[^}]*throw new Exception\\('[^']*'\\);\\s*\\}/s",
+    "",
+    $dbClassCode
+);
+eval($dbClassCode);
+
+function reset_db_instance() {
+    $reflection = new ReflectionClass('Database');
+    $prop = $reflection->getProperty('instance');
+    $prop->setAccessible(true);
+    $prop->setValue(null, null);
+}
+
 require_once __DIR__ . '/backend/services/Constants.php';
 require_once __DIR__ . '/backend/services/BusinessException.php';
-
-class TestDatabase extends Database {
-    public static function resetInstance() {
-        self::$instance = null;
-    }
-}
 
 class TestPermissionService {
     const ROLE_ADMIN = 'admin';
@@ -345,6 +358,11 @@ function assert_not_empty($value, $message = '') {
         throw new AssertionError($message ?: 'Expected not empty');
     }
 }
+function assert_empty($value, $message = '') {
+    if (!empty($value)) {
+        throw new AssertionError($message ?: 'Expected empty, got: ' . var_export($value, true));
+    }
+}
 function assert_throws(callable $fn, $expectedException = null, $expectedCode = null, $message = '') {
     $caught = null;
     try {
@@ -370,7 +388,7 @@ echo "╚═══════════════════════�
 
 echo "[初始化] 测试数据库: {$testDbFile}\n";
 $testDb = initTestDatabase();
-TestDatabase::resetInstance();
+reset_db_instance();
 $db = Database::getInstance();
 echo "[初始化] 数据库初始化完成，测试用户ID: {$GLOBALS['TEST_USER_ID']}\n\n";
 
@@ -699,7 +717,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 
 $orderService = new OrderService();
 
-test('OrderService::createOrder - MOQ满足时状态为MOQ_PASSED', function() use ($orderService, $db, $p1, $p2) {
+test('OrderService::createOrder - MOQ满足时状态为PENDING且MOQ已通过', function() use ($orderService, $db, $p1, $p2) {
     $data = [
         'receiver_name' => '链路测试A',
         'receiver_phone' => '13900000001',
@@ -724,7 +742,7 @@ test('OrderService::createOrder - MOQ满足时状态为MOQ_PASSED', function() u
     assert_true(strpos($result['order_no'], ORDER_PREFIX) === 0);
 
     $order = $orderService->getOrderDetail($result['id']);
-    assert_eq($order['status'], Constants::ORDER_STATUS_MOQ_PASSED);
+    assert_eq($order['status'], Constants::ORDER_STATUS_PENDING);
     assert_eq($order['moq_checked'], Constants::MOQ_CHECK_PASSED);
     assert_eq(count($order['items']), 2);
     foreach ($order['items'] as $item) {
@@ -736,7 +754,7 @@ test('OrderService::createOrder - MOQ满足时状态为MOQ_PASSED', function() u
     assert_eq(round($order['total_amount'], 2), round($expectedAmount, 2));
 });
 
-test('OrderService::createOrder - MOQ不满足时状态为PENDING', function() use ($orderService, $db, $p1) {
+test('OrderService::createOrder - MOQ不满足时直接抛出异常', function() use ($orderService, $db, $p1) {
     $data = [
         'receiver_name' => '链路测试B',
         'receiver_phone' => '13900000002',
@@ -749,12 +767,10 @@ test('OrderService::createOrder - MOQ不满足时状态为PENDING', function() u
             ],
         ],
     ];
-    $result = $orderService->createOrder($data);
-    $order = $orderService->getOrderDetail($result['id']);
-    assert_eq($order['status'], Constants::ORDER_STATUS_PENDING);
-    assert_eq($order['moq_checked'], Constants::MOQ_CHECK_FAILED);
-    assert_not_empty($order['moq_fail_reason']);
-    assert_eq($order['items'][0]['moq_passed'], 0);
+    $ex = assert_throws(function() use ($orderService, $data) {
+        $orderService->createOrder($data);
+    }, BusinessException::class, Constants::ERROR_CODE_MOQ_CHECK_FAILED);
+    assert_true(strpos($ex->getMessage(), $p1['sku']) !== false);
 });
 
 test('OrderService::createOrder - 参数校验：收件信息不完整', function() use ($orderService, $p1) {
@@ -802,15 +818,16 @@ test('【完整链路】步骤1: 创建MOQ满足的订单', function() use ($ord
     $linkOrderId = $result['id'];
 
     $order = $orderService->getOrderDetail($linkOrderId);
-    assert_eq($order['status'], Constants::ORDER_STATUS_MOQ_PASSED);
+    assert_eq($order['status'], Constants::ORDER_STATUS_PENDING);
     assert_eq($order['moq_checked'], Constants::MOQ_CHECK_PASSED);
     assert_eq(count($order['items']), 2);
 });
 
-test('【完整链路】步骤2: 再次执行MOQ校验确认', function() use ($moqService, &$linkOrderId) {
+test('【完整链路】步骤2: 执行MOQ校验更新状态为MOQ_PASSED', function() use ($moqService, &$linkOrderId) {
     $result = $moqService->checkOrderMoq($linkOrderId);
     assert_true($result['passed']);
     assert_eq($result['order']['status'], Constants::ORDER_STATUS_MOQ_PASSED);
+    assert_eq($result['order']['moq_checked'], Constants::MOQ_CHECK_PASSED);
 });
 
 test('【完整链路】步骤3: 审核订单', function() use ($orderService, &$linkOrderId) {
@@ -904,7 +921,7 @@ test('【完整链路】步骤10: 面单数据校验-商品明细一致', functi
     assert_eq($labelSkus, $orderSkus);
 });
 
-test('OrderService::reviewOrder - 审核驳回状态回退', function() use ($orderService, $p1) {
+test('OrderService::reviewOrder - 审核驳回状态回退', function() use ($orderService, $moqService, $p1) {
     $data = [
         'receiver_name' => '审核驳回测试', 'receiver_phone' => '13700000001',
         'receiver_address' => '地址', 'items' => [[
@@ -914,6 +931,7 @@ test('OrderService::reviewOrder - 审核驳回状态回退', function() use ($or
         ]],
     ];
     $r = $orderService->createOrder($data);
+    $moqService->checkOrderMoq($r['id']);
     $orderService->reviewOrder($r['id'], ['approved' => true]);
     $o1 = $orderService->getOrderDetail($r['id']);
     assert_eq($o1['status'], Constants::ORDER_STATUS_REVIEWED);
