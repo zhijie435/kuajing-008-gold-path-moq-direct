@@ -232,6 +232,7 @@ class OrderController {
         $failedItems = [];
 
         foreach ($items as $item) {
+            $id = (int)($item['id'] ?? 0);
             $sku = trim($item['sku'] ?? '');
             $name = trim($item['name'] ?? '');
             $quantity = max(0, (int)($item['quantity'] ?? 0));
@@ -244,6 +245,7 @@ class OrderController {
             }
 
             $results[] = [
+                'id' => $id,
                 'sku' => $sku,
                 'name' => $name,
                 'quantity' => $quantity,
@@ -282,19 +284,24 @@ class OrderController {
         if ($orderId > 0) {
             $this->db->beginTransaction();
             try {
+                $currentStatus = (int)$order['status'];
+                $newStatus = $result['passed']
+                    ? ($currentStatus < 10 ? 10 : $currentStatus)
+                    : ($currentStatus >= 20 ? $currentStatus : 0);
+
                 $this->db->update($this->table, [
                     'moq_checked' => $result['passed'] ? 1 : 2,
                     'moq_fail_reason' => $result['passed'] ? '' : $result['message'],
-                    'status' => $result['passed'] ? 10 : 0,
+                    'status' => $newStatus,
                 ], 'id = ?', [$orderId]);
 
                 foreach ($result['items'] as $ri) {
-                    if (!empty($ri['sku'])) {
+                    if (!empty($ri['id'])) {
                         $this->db->update($this->itemTable, [
                             'moq_passed' => $ri['passed'] ? 1 : 0,
                             'quantity' => $ri['quantity'],
                             'moq' => $ri['moq'],
-                        ], 'order_id = ? AND sku = ?', [$orderId, $ri['sku']]);
+                        ], 'id = ? AND order_id = ?', [$ri['id'], $orderId]);
                     }
                 }
                 $this->db->commit();
@@ -347,10 +354,10 @@ class OrderController {
             ], 'id = ?', [$oid]);
 
             foreach ($result['items'] as $ri) {
-                if (!empty($ri['sku'])) {
+                if (!empty($ri['id'])) {
                     $this->db->update($this->itemTable, [
                         'moq_passed' => $ri['passed'] ? 1 : 0,
-                    ], 'order_id = ? AND sku = ?', [$oid, $ri['sku']]);
+                    ], 'id = ? AND order_id = ?', [$ri['id'], $oid]);
                 }
             }
 
