@@ -82,7 +82,7 @@ class ShippingController {
         }
 
         if ((int)$order['moq_checked'] !== 1) {
-            return ['success' => false, 'message' => '订单未通过MOQ校验'];
+            return ['success' => false, 'message' => (int)$order['moq_checked'] === 2 ? '订单MOQ校验未通过，无法生成面单' : '订单未通过MOQ校验'];
         }
 
         if ((int)$order['status'] < 15) {
@@ -105,6 +105,15 @@ class ShippingController {
 
         if (count($orderItems) === 0) {
             return ['success' => false, 'message' => '订单没有商品'];
+        }
+
+        foreach ($orderItems as $oi) {
+            if ((int)$oi['moq_passed'] !== 1) {
+                return [
+                    'success' => false,
+                    'message' => "商品 {$oi['sku']}({$oi['name']}) 未满足MOQ，无法生成面单，请先校验",
+                ];
+            }
         }
 
         $this->db->beginTransaction();
@@ -146,7 +155,14 @@ class ShippingController {
             ];
         } catch (Exception $e) {
             $this->db->rollBack();
-            throw $e;
+            return [
+                'success' => false,
+                'message' => '面单生成失败，数据已自动回滚：' . $e->getMessage(),
+                'rollback' => true,
+                'retryable' => true,
+                'order_id' => $orderId,
+                'order_no' => $order['order_no'],
+            ];
         }
     }
 
@@ -155,7 +171,12 @@ class ShippingController {
         $result = $this->createShippingLabel($orderId);
 
         if (!$result['success']) {
-            json_error($result['message']);
+            json_error($result['message'], 1, [
+                'rollback' => $result['rollback'] ?? false,
+                'retryable' => $result['retryable'] ?? false,
+                'order_id' => $result['order_id'] ?? $orderId,
+                'order_no' => $result['order_no'] ?? null,
+            ]);
         }
 
         json_success($result, '面单生成成功');
@@ -172,6 +193,8 @@ class ShippingController {
         $successCount = 0;
         $failCount = 0;
         $results = [];
+        $failedOrders = [];
+        $retryableOrders = [];
 
         foreach ($orderIds as $oid) {
             $oid = (int)$oid;
@@ -181,6 +204,16 @@ class ShippingController {
                 $results[] = $result;
             } else {
                 $failCount++;
+                $failedOrders[] = [
+                    'order_id' => $result['order_id'] ?? $oid,
+                    'order_no' => $result['order_no'] ?? null,
+                    'message' => $result['message'],
+                    'rollback' => $result['rollback'] ?? false,
+                    'retryable' => $result['retryable'] ?? false,
+                ];
+                if (!empty($result['retryable'])) {
+                    $retryableOrders[] = $result['order_id'] ?? $oid;
+                }
             }
         }
 
@@ -188,6 +221,8 @@ class ShippingController {
             'success' => $successCount,
             'failed' => $failCount,
             'labels' => $results,
+            'failed_orders' => $failedOrders,
+            'retryable_order_ids' => $retryableOrders,
         ], '批量生成完成');
     }
 

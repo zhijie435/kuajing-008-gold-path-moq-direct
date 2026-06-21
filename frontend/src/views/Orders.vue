@@ -194,7 +194,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, h } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { orderApi, shippingApi } from '@/api'
 
@@ -330,6 +330,12 @@ const batchCheckMoq = async () => {
   }
 }
 
+const retryOrderId = ref(null)
+const retryOrderNo = ref('')
+const retryDialogVisible = ref(false)
+const retryErrorMessage = ref('')
+const isRetryable = ref(false)
+
 const handleGenerateShipping = async (row) => {
   try {
     const res = await shippingApi.generate(row.id)
@@ -337,21 +343,96 @@ const handleGenerateShipping = async (row) => {
     loadList()
   } catch (e) {
     console.error(e)
+    const errorData = e?.response?.data || {}
+    const errMsg = errorData.message || e.message || '面单生成失败'
+    const rollback = errorData.data?.rollback || false
+    retryOrderId.value = errorData.data?.order_id || row.id
+    retryOrderNo.value = errorData.data?.order_no || row.order_no
+    retryErrorMessage.value = errMsg
+    isRetryable.value = errorData.data?.retryable || false
+    ElMessageBox({
+      title: '打单失败',
+      message: h('div', null, [
+        h('p', { style: 'color: #F56C6C; margin-bottom: 8px' }, errMsg),
+        rollback ? h('p', { style: 'color: #67C23A; margin-bottom: 8px' }, '✅ 数据已自动回滚，订单状态未受影响') : null,
+        isRetryable.value ? h('p', { style: 'color: #E6A23C' }, '💡 您可以点击下方重试按钮再次尝试') : null
+      ]),
+      showCancelButton: isRetryable.value,
+      confirmButtonText: isRetryable.value ? '立即重试' : '我知道了',
+      cancelButtonText: '取消',
+      type: 'error',
+      dangerouslyUseHTMLString: true
+    }).then(async () => {
+      if (isRetryable.value && retryOrderId.value) {
+        await handleGenerateShipping({ id: retryOrderId.value, order_no: retryOrderNo.value })
+      }
+    }).catch(() => {})
   }
 }
 
-const batchGenerateShipping = async () => {
+const batchRetryOrderIds = ref([])
+const batchRetryDialogVisible = ref(false)
+const batchFailedOrders = ref([])
+
+const batchGenerateShipping = async (orderIds = null) => {
   try {
-    const ids = selectedOrders.value.filter(o => o.status === 15).map(o => o.id)
+    const ids = orderIds || selectedOrders.value.filter(o => o.status === 15).map(o => o.id)
     if (ids.length === 0) {
       ElMessage.warning('请选择已审核且未生成面单的订单')
       return
     }
     const res = await shippingApi.batchGenerate({ order_ids: ids })
-    ElMessage.success(`成功生成 ${res.data?.success || 0} 张面单`)
+    const success = res.data?.success || 0
+    const failed = res.data?.failed || 0
+    const failedOrders = res.data?.failed_orders || []
+    const retryableIds = res.data?.retryable_order_ids || []
+
     loadList()
+
+    if (failed === 0) {
+      ElMessage.success(`成功生成 ${success} 张面单`)
+    } else {
+      batchFailedOrders.value = failedOrders
+      batchRetryOrderIds.value = retryableIds
+
+      const hasRollback = failedOrders.some(f => f.rollback)
+      const hasRetryable = retryableIds.length > 0
+
+      ElMessageBox({
+        title: '批量打单完成',
+        message: h('div', null, [
+          h('p', { style: 'margin-bottom: 8px' }, [
+            h('span', { style: 'color: #67C23A' }, `成功：${success} 条`),
+            h('span', { style: 'margin: 0 10px; color: #909399' }, '|'),
+            h('span', { style: 'color: #F56C6C' }, `失败：${failed} 条`)
+          ]),
+          hasRollback ? h('p', { style: 'color: #67C23A; margin-bottom: 8px' }, '✅ 失败订单数据已自动回滚，订单状态未受影响') : null,
+          failedOrders.length > 0 ? h('div', { style: 'margin-top: 12px' }, [
+            h('p', { style: 'font-weight: 600; margin-bottom: 8px' }, '失败详情：'),
+            h('div', { style: 'max-height: 150px; overflow-y: auto; background: #f5f7fa; padding: 8px; border-radius: 4px' },
+              failedOrders.map((f, idx) => h('div', { key: idx, style: 'font-size: 12px; padding: 4px 0; border-bottom: 1px dashed #e4e7ed' }, [
+                h('span', { style: 'font-weight: 600' }, f.order_no || `订单${f.order_id}`),
+                h('span', { style: 'color: #F56C6C; margin-left: 8px' }, f.message)
+              ]))
+            )
+          ]) : null,
+          hasRetryable ? h('p', { style: 'color: #E6A23C; margin-top: 12px' }, `💡 有 ${retryableIds.length} 条订单可重试`) : null
+        ]),
+        showCancelButton: hasRetryable,
+        confirmButtonText: hasRetryable ? '重试失败订单' : '我知道了',
+        cancelButtonText: '关闭',
+        type: failed > 0 ? 'warning' : 'success',
+        dangerouslyUseHTMLString: true
+      }).then(async () => {
+        if (hasRetryable && batchRetryOrderIds.value.length > 0) {
+          await batchGenerateShipping(batchRetryOrderIds.value)
+        }
+      }).catch(() => {})
+    }
   } catch (e) {
     console.error(e)
+    const errMsg = e?.message || '批量打单失败'
+    ElMessage.error(errMsg)
   }
 }
 

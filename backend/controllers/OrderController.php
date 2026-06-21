@@ -335,7 +335,7 @@ class OrderController {
 
         foreach ($orderIds as $oid) {
             $oid = (int)$oid;
-            $order = $this->db->fetchOne("SELECT id FROM `{$this->table}` WHERE id = ?", [$oid]);
+            $order = $this->db->fetchOne("SELECT * FROM `{$this->table}` WHERE id = ?", [$oid]);
             if (!$order) continue;
 
             $items = $this->loadOrderItems($oid);
@@ -347,10 +347,15 @@ class OrderController {
                 $failedCount++;
             }
 
+            $currentStatus = (int)$order['status'];
+            $newStatus = $result['passed']
+                ? ($currentStatus < 10 ? 10 : $currentStatus)
+                : ($currentStatus >= 20 ? $currentStatus : 0);
+
             $this->db->update($this->table, [
                 'moq_checked' => $result['passed'] ? 1 : 2,
                 'moq_fail_reason' => $result['passed'] ? '' : $result['message'],
-                'status' => $result['passed'] ? 10 : 0,
+                'status' => $newStatus,
             ], 'id = ?', [$oid]);
 
             foreach ($result['items'] as $ri) {
@@ -383,6 +388,23 @@ class OrderController {
             json_error('订单已审核，无需重复操作');
         }
 
+        $items = $this->loadOrderItems($id);
+        $allItemsPassed = true;
+        $failedSkuList = [];
+        foreach ($items as $it) {
+            $qty = (int)$it['quantity'];
+            $moq = (int)$it['moq'];
+            $passed = $qty >= $moq;
+            if (!$passed) {
+                $allItemsPassed = false;
+                $failedSkuList[] = "{$it['sku']}({$it['name']})";
+            }
+        }
+
+        if (!$allItemsPassed) {
+            json_error('商品明细未满足起订量：' . implode('，', $failedSkuList) . '，请先校验');
+        }
+
         $data = get_input_data();
         $approved = (bool)($data['approved'] ?? true);
         $reviewRemark = trim($data['review_remark'] ?? '');
@@ -392,12 +414,14 @@ class OrderController {
             if ($approved) {
                 $this->db->update($this->table, [
                     'status' => 15,
+                    'moq_checked' => 1,
+                    'moq_fail_reason' => '',
                     'review_remark' => $reviewRemark,
                     'reviewed_at' => date('Y-m-d H:i:s'),
                 ], 'id = ?', [$id]);
             } else {
                 $this->db->update($this->table, [
-                    'status' => 0,
+                    'status' => 10,
                     'review_remark' => $reviewRemark,
                 ], 'id = ?', [$id]);
             }
@@ -438,15 +462,30 @@ class OrderController {
                 continue;
             }
 
+            $items = $this->loadOrderItems($oid);
+            $allItemsPassed = true;
+            foreach ($items as $it) {
+                if ((int)$it['quantity'] < (int)$it['moq']) {
+                    $allItemsPassed = false;
+                    break;
+                }
+            }
+            if (!$allItemsPassed) {
+                $failCount++;
+                continue;
+            }
+
             if ($approved) {
                 $this->db->update($this->table, [
                     'status' => 15,
+                    'moq_checked' => 1,
+                    'moq_fail_reason' => '',
                     'review_remark' => $reviewRemark,
                     'reviewed_at' => date('Y-m-d H:i:s'),
                 ], 'id = ?', [$oid]);
             } else {
                 $this->db->update($this->table, [
-                    'status' => 0,
+                    'status' => 10,
                     'review_remark' => $reviewRemark,
                 ], 'id = ?', [$oid]);
             }

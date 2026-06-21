@@ -286,6 +286,8 @@ const printLabel = async (row) => {
     loadList()
   } catch (e) {
     console.error(e)
+    const errMsg = e?.message || '标记打印失败'
+    ElMessage.error(errMsg)
   }
 }
 
@@ -298,6 +300,8 @@ const printCurrentLabel = async () => {
     loadList()
   } catch (e) {
     console.error(e)
+    const errMsg = e?.message || '打印失败'
+    ElMessage.error(errMsg)
   }
 }
 
@@ -308,7 +312,10 @@ const markShipped = async (row) => {
     ElMessage.success('已标记发货，订单状态已同步更新')
     loadList()
   } catch (e) {
-    if (e !== 'cancel') console.error(e)
+    if (e === 'cancel') return
+    console.error(e)
+    const errMsg = e?.message || '标记发货失败'
+    ElMessage.error(errMsg)
   }
 }
 
@@ -324,6 +331,8 @@ const batchPrint = async () => {
     loadList()
   } catch (e) {
     console.error(e)
+    const errMsg = e?.message || '批量标记打印失败'
+    ElMessage.error(errMsg)
   }
 }
 
@@ -339,7 +348,10 @@ const batchMarkShipped = async () => {
     ElMessage.success(`批量标记发货成功，已同步更新 ${res.data?.count || 0} 个订单状态`)
     loadList()
   } catch (e) {
-    if (e !== 'cancel') console.error(e)
+    if (e === 'cancel') return
+    console.error(e)
+    const errMsg = e?.message || '批量标记发货失败'
+    ElMessage.error(errMsg)
   }
 }
 
